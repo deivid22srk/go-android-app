@@ -97,10 +97,20 @@ jobs:
           fi
 
       - name: Compilar APK com gomobile
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
+          # Garante que o NDK alvo existe; se não, usa o primeiro disponível
+          if [ ! -d "$ANDROID_NDK_HOME" ]; then
+            export ANDROID_NDK_HOME=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | head -1)
+            echo "NDK alvo não encontrado, usando: $ANDROID_NDK_HOME"
+          fi
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          ls -la "$ANDROID_NDK_HOME"
           gomobile build -v \
             -target="${{ steps.target.outputs.target }}" \
+            -androidapi=${{ env.ANDROID_API_LEVEL }} \
             -o "go-android-app.apk" \
             .
           echo "=== APK gerado ==="
