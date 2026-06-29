@@ -1,0 +1,137 @@
+name: Build Android APK (Go)
+
+# Este workflow compila o app Android escrito em Go usando gomobile.
+# Pode ser disparado manualmente (workflow_dispatch) ou a cada push em main.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Arquitetura alvo (android/arm64, android/amd64, ou 'all')"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - android/arm64
+          - android/amd64
+          - android/386
+          - all
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build APK with gomobile
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      GO_VERSION: "1.21"
+      ANDROID_API_LEVEL: "34"
+      ANDROID_BUILD_TOOLS: "34.0.0"
+      NDK_VERSION: "26.3.11579264"
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Configurar JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-${{ env.ANDROID_API_LEVEL }}
+            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+            ndk;${{ env.NDK_VERSION }}
+
+      - name: Exibir versões instaladas
+        run: |
+          echo "=== Go ==="
+          go version
+          echo "=== Java ==="
+          java -version
+          echo "=== Android SDK ==="
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          ls -la "$ANDROID_HOME/ndk/"
+          echo "=== gomobile path ==="
+          go env GOPATH
+
+      - name: Instalar gomobile e gobind
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Inicializar gomobile
+        run: |
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          gomobile init -v
+
+      - name: Baixar dependências Go
+        run: go mod download
+
+      - name: Definir target de build
+        id: target
+        run: |
+          INPUT="${{ github.event.inputs.target }}"
+          if [ -z "$INPUT" ] || [ "$INPUT" = "all" ]; then
+            echo "target=android/arm64,android/amd64,android/386" >> "$GITHUB_OUTPUT"
+          else
+            echo "target=$INPUT" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compilar APK com gomobile
+        run: |
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          gomobile build -v \
+            -target="${{ steps.target.outputs.target }}" \
+            -appid="com.deivid22srk.goandroidapp" \
+            -o "go-android-app.apk" \
+            .
+          echo "=== APK gerado ==="
+          ls -lh go-android-app.apk
+          file go-android-app.apk
+
+      - name: Verificar integridade do APK
+        run: |
+          if [ -f go-android-app.apk ]; then
+            echo "✅ APK compilado com sucesso"
+            unzip -l go-android-app.apk | head -30
+          else
+            echo "❌ APK não foi gerado"
+            exit 1
+          fi
+
+      - name: Upload do APK como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-android-app-apk
+          path: go-android-app.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Resumo do build
+        if: always()
+        run: |
+          echo "## Resultado do Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ **Status:** Sucesso" >> "$GITHUB_STEP_SUMMARY"
+            echo "📦 **APK:** go-android-app.apk" >> "$GITHUB_STEP_SUMMARY"
+            echo "🎯 **Target:** \`${{ steps.target.outputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ **Status:** Falha" >> "$GITHUB_STEP_SUMMARY"
+          fi
