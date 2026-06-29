@@ -101,7 +101,6 @@ jobs:
           export PATH="$PATH:$(go env GOPATH)/bin"
           gomobile build -v \
             -target="${{ steps.target.outputs.target }}" \
-            -appid="com.deivid22srk.goandroidapp" \
             -o "go-android-app.apk" \
             .
           echo "=== APK gerado ==="
